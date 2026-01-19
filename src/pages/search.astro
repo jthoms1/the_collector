@@ -1,0 +1,78 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ItemGrid from '../components/ItemGrid.astro';
+import SearchBar from '../components/SearchBar';
+import FilterPanel from '../components/FilterPanel';
+import { searchItems } from '../lib/db';
+
+const url = Astro.url;
+const query = url.searchParams.get('q') || '';
+const type = url.searchParams.get('type');
+const condition = url.searchParams.get('condition');
+const minValue = url.searchParams.get('minValue');
+const maxValue = url.searchParams.get('maxValue');
+const year = url.searchParams.get('year');
+
+const params = {
+  q: query || undefined,
+  type: type ? parseInt(type) : undefined,
+  condition: condition || undefined,
+  minValue: minValue ? parseFloat(minValue) : undefined,
+  maxValue: maxValue ? parseFloat(maxValue) : undefined,
+  year: year ? parseInt(year) : undefined,
+  limit: 100
+};
+
+const items = (query || type || condition || minValue || maxValue || year)
+  ? searchItems(params)
+  : [];
+---
+
+<Layout title="Search">
+  <div class="mb-8">
+    <h1 class="page-title">Search</h1>
+    <p class="text-gray-500 mt-1">Find items across your collection</p>
+  </div>
+
+  <div class="max-w-2xl mb-6">
+    <SearchBar client:load initialQuery={query} />
+  </div>
+
+  <div class="mb-6">
+    <FilterPanel
+      client:load
+      initialFilters={{
+        type: params.type,
+        condition: params.condition,
+        minValue: params.minValue,
+        maxValue: params.maxValue,
+        year: params.year
+      }}
+      onFilterChange={(filters) => {
+        const searchParams = new URLSearchParams();
+        if (query) searchParams.set('q', query);
+        if (filters.type) searchParams.set('type', filters.type.toString());
+        if (filters.condition) searchParams.set('condition', filters.condition);
+        if (filters.minValue) searchParams.set('minValue', filters.minValue.toString());
+        if (filters.maxValue) searchParams.set('maxValue', filters.maxValue.toString());
+        if (filters.year) searchParams.set('year', filters.year.toString());
+        window.location.href = `/search?${searchParams.toString()}`;
+      }}
+    />
+  </div>
+
+  {(query || type || condition || minValue || maxValue || year) && (
+    <div class="mb-4 text-gray-500">
+      Found {items.length} {items.length === 1 ? 'item' : 'items'}
+      {query && <span> for "{query}"</span>}
+    </div>
+  )}
+
+  <ItemGrid
+    items={items}
+    emptyMessage={query || type || condition || minValue || maxValue || year
+      ? "No items found matching your search"
+      : "Enter a search term or apply filters to find items"
+    }
+  />
+</Layout>

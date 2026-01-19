@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.astro/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Collection images (large files)
+Cards/
+Comics/
+Ellie/
+.images/
+
+# Database (keep local)
+*.db-journal
+*.db-wal
+*.db-shm
