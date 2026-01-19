@@ -1,72 +1,142 @@
 ---
-import type { ItemWithType } from '../lib/schema';
+import type { ItemWithType, ItemImage } from '../lib/schema';
 import { formatCurrency, getConditionColor, getProfessionalGradeColor, getImageUrl } from '../lib/utils';
 
+interface ItemWithOptionalImages extends ItemWithType {
+  images?: ItemImage[];
+}
+
 interface Props {
-  item: ItemWithType;
+  item: ItemWithOptionalImages;
 }
 
 const { item } = Astro.props;
-const imageUrl = getImageUrl(item.image_path, item.collection_type_name);
+
+// Get primary image from images array, or fall back to legacy image_path
+const primaryImage = item.images?.find(img => img.is_primary) || item.images?.[0];
+const imagePath = primaryImage?.image_path || item.image_path;
+const imageOrientation = primaryImage?.image_orientation || item.image_orientation || 'portrait';
+// Prefer image_count from query, then images array length, then fallback to legacy check
+const imageCount = item.image_count ?? item.images?.length ?? (item.image_path ? 1 : 0);
+
+// Use thumbnail for grid view
+const imageUrl = getImageUrl(imagePath, item.collection_type_name, 'thumb');
 const detailUrl = item.collection_type_name.toLowerCase() === 'cards'
   ? `/cards/${item.id}`
   : `/comics/${item.id}`;
+
+// Determine aspect ratio class based on image orientation
+const aspectClass = imageOrientation === 'landscape' ? 'aspect-[4/3]' : imageOrientation === 'square' ? 'aspect-square' : 'aspect-[3/4]';
+
+// Map condition colors to vintage palette
+function getVintageConditionColor(grade: string | null): string {
+  if (!grade) return 'badge-default';
+  const upperGrade = grade.toUpperCase();
+  if (upperGrade.includes('MINT') || upperGrade === 'NM' || upperGrade === 'NM+') {
+    return 'badge-gold';
+  }
+  if (upperGrade.includes('VF') || upperGrade.includes('FINE')) {
+    return 'badge-teal';
+  }
+  return 'badge-default';
+}
+
+function getVintageGradeColor(grade: number | null): string {
+  if (!grade) return 'badge-default';
+  if (grade >= 9.0) return 'badge-gold';
+  if (grade >= 7.0) return 'badge-teal';
+  return 'badge-default';
+}
 ---
 
 <a href={detailUrl} class="card-hover group block">
-  <div class="aspect-[3/4] relative overflow-hidden bg-gray-100">
-    {item.image_path ? (
+  <!-- Image container -->
+  <div class:list={[aspectClass, "relative overflow-hidden bg-peach"]}>
+    {imagePath ? (
       <img
         src={imageUrl}
         alt={item.name}
-        class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+        class="w-full h-full object-contain"
         loading="lazy"
       />
     ) : (
-      <div class="w-full h-full flex items-center justify-center text-gray-400">
-        <svg class="w-16 h-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      <div class="w-full h-full flex items-center justify-center text-brown/30">
+        <svg class="w-16 h-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
       </div>
     )}
 
+    <!-- Multi-image indicator -->
+    {imageCount > 1 && (
+      <div class="absolute bottom-2 right-2">
+        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-navy/80 text-cream text-xs font-sans border border-cream/30">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          {imageCount}
+        </span>
+      </div>
+    )}
+
+    <!-- Professional grade badge -->
     {item.professional_grade && (
       <div class="absolute top-2 right-2">
-        <span class={`badge ${getProfessionalGradeColor(item.professional_grade)}`}>
+        <span class={getVintageGradeColor(item.professional_grade)}>
           {item.grading_company} {item.professional_grade}
         </span>
       </div>
     )}
+
+    <!-- Collection type indicator -->
+    <div class="absolute top-2 left-2">
+      <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-navy/80 text-cream border-2 border-cream/50">
+        {item.collection_type_name.toLowerCase() === 'cards' ? (
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        ) : (
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+        )}
+      </span>
+    </div>
   </div>
 
-  <div class="p-4">
-    <h3 class="font-medium text-gray-900 truncate group-hover:text-primary-600 transition-colors">
+  <!-- Card content -->
+  <div class="p-4 bg-peach-light">
+    <h3 class="font-display font-bold text-navy truncate group-hover:text-teal transition-colors">
       {item.name}
     </h3>
 
-    <div class="mt-1 flex items-center gap-2 text-sm text-gray-500">
+    <div class="mt-1 flex items-center gap-2 text-sm text-brown/70 font-sans">
       {item.publisher && <span>{item.publisher}</span>}
-      {item.year && <span>({item.year})</span>}
+      {item.year && <span class="text-brown/50">({item.year})</span>}
     </div>
 
     {item.series && (
-      <div class="mt-1 text-sm text-gray-500 truncate">
+      <div class="mt-1 text-sm text-brown/60 truncate font-sans italic">
         {item.series} {item.issue_number && `#${item.issue_number}`}
       </div>
     )}
 
-    <div class="mt-3 flex items-center justify-between">
+    <!-- Footer with condition and price -->
+    <div class="mt-3 pt-3 border-t-2 border-dashed border-brown/20 flex items-center justify-between">
       {item.condition_grade && !item.professional_grade && (
-        <span class={`badge ${getConditionColor(item.condition_grade)}`}>
+        <span class={getVintageConditionColor(item.condition_grade)}>
           {item.condition_grade}
         </span>
       )}
       {!item.condition_grade && !item.professional_grade && (
-        <span class="badge bg-gray-100 text-gray-600">Ungraded</span>
+        <span class="badge-default">Ungraded</span>
+      )}
+      {item.professional_grade && (
+        <span class="text-xs text-brown/50 font-sans">Graded</span>
       )}
 
       {item.estimated_value !== null && (
-        <span class="font-semibold text-gray-900">
+        <span class="price-tag text-sm">
           {formatCurrency(item.estimated_value)}
         </span>
       )}

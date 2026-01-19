@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
-import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import { processImage } from '../../lib/images';
 
 export const POST: APIRoute = async ({ request }) => {
   try {
@@ -47,18 +47,19 @@ export const POST: APIRoute = async ({ request }) => {
     const folder = collectionType.toLowerCase() === 'comics' ? 'Comics' : 'Cards';
     const uploadDir = path.join(process.cwd(), folder);
 
-    // Ensure directory exists
-    await mkdir(uploadDir, { recursive: true });
-
-    // Save file
+    // Process image and generate thumbnails
     const buffer = Buffer.from(await file.arrayBuffer());
-    const filePath = path.join(uploadDir, filename);
-    await writeFile(filePath, buffer);
+    const result = await processImage(buffer, filename, uploadDir);
 
     return new Response(JSON.stringify({
       success: true,
-      filename,
-      path: `/${folder}/${filename}`
+      filename: result.original,
+      path: `/${folder}/${result.original}`,
+      thumbPath: `/${folder}/${result.thumb}`,
+      mediumPath: `/${folder}/${result.medium}`,
+      orientation: result.orientation,
+      width: result.width,
+      height: result.height
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }

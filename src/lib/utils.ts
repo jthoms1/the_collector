@@ -30,17 +30,55 @@ export function formatRelativeDate(date: string | null | undefined): string {
   return `${Math.floor(diffDays / 365)} years ago`;
 }
 
-export function getImageUrl(imagePath: string | null | undefined, collectionType: string): string {
+export type ImageSize = 'original' | 'medium' | 'thumb';
+
+/**
+ * Get the URL for an image at a specific size
+ */
+export function getImageUrl(
+  imagePath: string | null | undefined,
+  collectionType: string,
+  size: ImageSize = 'original'
+): string {
   if (!imagePath) {
     return '/images/placeholder.svg';
   }
-  // If it's already a full path starting with /, return as is
-  if (imagePath.startsWith('/')) {
-    return imagePath;
+
+  // Normalize the path
+  let normalizedPath = imagePath;
+  if (!normalizedPath.startsWith('/')) {
+    const folder = collectionType.toLowerCase() === 'cards' ? 'Cards' : 'Comics';
+    normalizedPath = `/${folder}/${imagePath}`;
   }
-  // Otherwise, construct the path based on collection type
-  const folder = collectionType.toLowerCase() === 'cards' ? 'Cards' : 'Comics';
-  return `/${folder}/${imagePath}`;
+
+  // For original size, return as is
+  if (size === 'original') {
+    return normalizedPath;
+  }
+
+  // For thumb/medium, construct the sized URL
+  const lastDot = normalizedPath.lastIndexOf('.');
+  if (lastDot === -1) {
+    return normalizedPath;
+  }
+
+  const basePath = normalizedPath.slice(0, lastDot);
+  // Sized versions are always JPEG
+  return `${basePath}_${size}.jpeg`;
+}
+
+/**
+ * Get the thumbnail URL for an image (480px max)
+ */
+export function getThumbUrl(imagePath: string | null | undefined, collectionType: string): string {
+  return getImageUrl(imagePath, collectionType, 'thumb');
+}
+
+/**
+ * Get the medium URL for an image (1024px max)
+ */
+export function getMediumUrl(imagePath: string | null | undefined, collectionType: string): string {
+  return getImageUrl(imagePath, collectionType, 'medium');
 }
 
 export function slugify(text: string): string {

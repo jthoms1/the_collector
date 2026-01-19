@@ -4,6 +4,8 @@ export interface CollectionType {
   description: string | null;
 }
 
+export type ImageOrientation = 'portrait' | 'landscape' | 'square';
+
 export interface Item {
   id: number;
   collection_type_id: number;
@@ -23,6 +25,7 @@ export interface Item {
   estimated_value: number | null;
   value_updated_at: string | null;
   image_path: string | null;
+  image_orientation: ImageOrientation | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -30,6 +33,34 @@ export interface Item {
 
 export interface ItemWithType extends Item {
   collection_type_name: string;
+  image_count?: number; // Optional, populated by list queries
+}
+
+export interface ItemImage {
+  id: number;
+  item_id: number;
+  image_path: string;
+  image_orientation: ImageOrientation;
+  is_primary: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface ItemWithImages extends ItemWithType {
+  images: ItemImage[];
+}
+
+export interface CreateItemImageInput {
+  item_id: number;
+  image_path: string;
+  image_orientation?: ImageOrientation;
+  is_primary?: boolean;
+  display_order?: number;
+}
+
+export interface UpdateItemImageInput {
+  is_primary?: boolean;
+  display_order?: number;
 }
 
 export interface PriceHistory {
@@ -73,6 +104,7 @@ export interface CreateItemInput {
   purchase_date?: string | null;
   estimated_value?: number | null;
   image_path?: string | null;
+  image_orientation?: ImageOrientation | null;
   notes?: string | null;
 }
 

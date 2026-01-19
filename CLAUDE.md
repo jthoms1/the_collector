@@ -1,4 +1,4 @@
-# The Collector
+# Jet
 
 Personal collectibles management app for trading cards and comic books.
 

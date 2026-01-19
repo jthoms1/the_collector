@@ -1,10 +1,24 @@
 import { useState, useEffect } from 'preact/hooks';
-import type { ItemWithType, CollectionType } from '../lib/schema';
+import type { ItemWithType, CollectionType, ImageOrientation, ItemImage } from '../lib/schema';
+
+interface ItemWithOptionalImages extends ItemWithType {
+  images?: ItemImage[];
+}
 
 interface Props {
-  item?: ItemWithType;
+  item?: ItemWithOptionalImages;
   collectionTypeId?: number;
   onSuccess?: (item: ItemWithType) => void;
+}
+
+interface ImageItem {
+  id?: number;
+  image_path: string;
+  image_orientation: ImageOrientation;
+  is_primary: boolean;
+  display_order: number;
+  thumbUrl: string;
+  isNew?: boolean;
 }
 
 const CONDITION_GRADES = [
@@ -20,11 +34,47 @@ const CONDITION_GRADES = [
 
 const GRADING_COMPANIES = ['PSA', 'BGS', 'CGC', 'SGC', 'CSG'];
 
+function getThumbUrl(imagePath: string, collectionType: string): string {
+  if (!imagePath) return '';
+  const ext = imagePath.lastIndexOf('.');
+  if (ext === -1) return imagePath;
+  const base = imagePath.slice(0, ext);
+  return `${base}_thumb.jpeg`;
+}
+
 export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
   const [collectionTypes, setCollectionTypes] = useState<CollectionType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(item?.image_path || null);
+  const [uploading, setUploading] = useState(false);
+
+  // Multi-image state
+  const [images, setImages] = useState<ImageItem[]>(() => {
+    if (item?.images?.length) {
+      return item.images.map((img, i) => ({
+        id: img.id,
+        image_path: img.image_path,
+        image_orientation: img.image_orientation || 'portrait',
+        is_primary: img.is_primary,
+        display_order: img.display_order ?? i,
+        thumbUrl: getThumbUrl(img.image_path, item.collection_type_name)
+      }));
+    }
+    // Legacy: single image
+    if (item?.image_path) {
+      return [{
+        image_path: item.image_path,
+        image_orientation: item.image_orientation || 'portrait',
+        is_primary: true,
+        display_order: 0,
+        thumbUrl: getThumbUrl(item.image_path, item.collection_type_name)
+      }];
+    }
+    return [];
+  });
+
+  // Track removed image IDs for cleanup
+  const [removedImageIds, setRemovedImageIds] = useState<number[]>([]);
 
   const [formData, setFormData] = useState({
     collection_type_id: item?.collection_type_id || collectionTypeId || 1,
@@ -41,7 +91,6 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
     purchase_price: item?.purchase_price?.toString() || '',
     purchase_date: item?.purchase_date || '',
     estimated_value: item?.estimated_value?.toString() || '',
-    image_path: item?.image_path || '',
     notes: item?.notes || ''
   });
 
@@ -62,34 +111,87 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
 
   const handleImageUpload = async (e: Event) => {
     const target = e.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (!file) return;
+    const files = target.files;
+    if (!files?.length) return;
 
-    const formDataUpload = new FormData();
-    formDataUpload.append('file', file);
-
+    setUploading(true);
     const typeName = collectionTypes.find(t => t.id === formData.collection_type_id)?.name || 'Cards';
-    formDataUpload.append('type', typeName);
 
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formDataUpload
-      });
-      const data = await res.json();
-      if (data.path) {
-        setFormData(prev => ({ ...prev, image_path: data.path }));
-        setImagePreview(data.path);
+    for (const file of Array.from(files)) {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', file);
+      formDataUpload.append('type', typeName);
+
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formDataUpload
+        });
+        const data = await res.json();
+
+        if (data.path) {
+          setImages(prev => {
+            const newImage: ImageItem = {
+              image_path: data.path,
+              image_orientation: data.orientation || 'portrait',
+              is_primary: prev.length === 0,
+              display_order: prev.length,
+              thumbUrl: data.thumbPath || data.path,
+              isNew: true
+            };
+            return [...prev, newImage];
+          });
+        }
+      } catch (err) {
+        console.error('Upload failed:', err);
       }
-    } catch (err) {
-      console.error('Upload failed:', err);
     }
+
+    setUploading(false);
+    target.value = '';
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages(prev => {
+      const removed = prev[index];
+      if (removed.id) {
+        setRemovedImageIds(ids => [...ids, removed.id!]);
+      }
+
+      const updated = prev.filter((_, i) => i !== index);
+      // If removed image was primary, make first image primary
+      if (removed.is_primary && updated.length > 0) {
+        updated[0].is_primary = true;
+      }
+      // Recompute display_order
+      return updated.map((img, i) => ({ ...img, display_order: i }));
+    });
+  };
+
+  const handleSetPrimary = (index: number) => {
+    setImages(prev => prev.map((img, i) => ({
+      ...img,
+      is_primary: i === index
+    })));
+  };
+
+  const handleMoveImage = (index: number, direction: 'up' | 'down') => {
+    setImages(prev => {
+      const newImages = [...prev];
+      const newIndex = direction === 'up' ? index - 1 : index + 1;
+      if (newIndex < 0 || newIndex >= newImages.length) return prev;
+      [newImages[index], newImages[newIndex]] = [newImages[newIndex], newImages[index]];
+      return newImages.map((img, i) => ({ ...img, display_order: i }));
+    });
   };
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Get primary image for legacy fields (backward compatibility)
+    const primaryImage = images.find(img => img.is_primary) || images[0];
 
     const payload = {
       collection_type_id: formData.collection_type_id,
@@ -106,7 +208,8 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
       purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
       purchase_date: formData.purchase_date || null,
       estimated_value: formData.estimated_value ? parseFloat(formData.estimated_value) : null,
-      image_path: formData.image_path || null,
+      image_path: primaryImage?.image_path || null,
+      image_orientation: primaryImage?.image_orientation || 'portrait',
       notes: formData.notes || null
     };
 
@@ -127,6 +230,39 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
 
       const savedItem = await res.json();
 
+      // Handle removed images
+      for (const imageId of removedImageIds) {
+        await fetch(`/api/items/${savedItem.id}/images/${imageId}`, {
+          method: 'DELETE'
+        }).catch(console.error);
+      }
+
+      // Save new images
+      for (const img of images) {
+        if (img.isNew) {
+          await fetch(`/api/items/${savedItem.id}/images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_path: img.image_path,
+              image_orientation: img.image_orientation,
+              is_primary: img.is_primary,
+              display_order: img.display_order
+            })
+          }).catch(console.error);
+        } else if (img.id) {
+          // Update existing images (primary, order might have changed)
+          await fetch(`/api/items/${savedItem.id}/images/${img.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              is_primary: img.is_primary,
+              display_order: img.display_order
+            })
+          }).catch(console.error);
+        }
+      }
+
       if (onSuccess) {
         onSuccess(savedItem);
       } else {
@@ -143,7 +279,7 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
   return (
     <form onSubmit={handleSubmit} class="space-y-8">
       {error && (
-        <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div class="bg-rust/10 border border-rust/30 text-rust-dark px-4 py-3 rounded-panel">
           {error}
         </div>
       )}
@@ -364,29 +500,97 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
       </div>
 
       <div class="card p-6">
-        <h3 class="section-title mb-4">Image</h3>
-        <div class="flex gap-6">
-          <div class="flex-1">
-            <label class="label" for="image">Upload Image</label>
-            <input
-              type="file"
-              id="image"
-              accept="image/*"
-              onChange={handleImageUpload}
-              class="input"
-            />
-            <p class="mt-2 text-sm text-gray-500">Supports JPEG, PNG, WebP, GIF (max 10MB)</p>
-          </div>
+        <h3 class="section-title mb-4">Images</h3>
 
-          {imagePreview && (
-            <div class="w-32 h-40 bg-gray-100 rounded-lg overflow-hidden">
-              <img
-                src={imagePreview}
-                alt="Preview"
-                class="w-full h-full object-cover"
-              />
-            </div>
-          )}
+        {/* Image list */}
+        {images.length > 0 && (
+          <div class="space-y-3 mb-4">
+            {images.map((img, index) => (
+              <div key={img.image_path} class="flex items-center gap-4 p-3 bg-peach rounded-panel border border-brown/20">
+                {/* Thumbnail */}
+                <div class="w-16 h-20 flex-shrink-0 rounded-panel overflow-hidden bg-cream border border-brown/20">
+                  <img src={img.thumbUrl} alt="" class="w-full h-full object-cover" />
+                </div>
+
+                {/* Info */}
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    {img.is_primary && (
+                      <span class="badge-teal text-xs">Primary</span>
+                    )}
+                    <span class="text-sm text-brown/70 truncate font-sans">
+                      {img.image_path.split('/').pop()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div class="flex items-center gap-1">
+                  {!img.is_primary && (
+                    <button
+                      type="button"
+                      onClick={() => handleSetPrimary(index)}
+                      class="p-2 text-brown/50 hover:text-gold transition-colors"
+                      title="Set as primary"
+                    >
+                      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleMoveImage(index, 'up')}
+                    disabled={index === 0}
+                    class="p-2 text-brown/50 hover:text-navy disabled:opacity-30 transition-colors"
+                    title="Move up"
+                  >
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMoveImage(index, 'down')}
+                    disabled={index === images.length - 1}
+                    class="p-2 text-brown/50 hover:text-navy disabled:opacity-30 transition-colors"
+                    title="Move down"
+                  >
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveImage(index)}
+                    class="p-2 text-brown/50 hover:text-rust transition-colors"
+                    title="Remove"
+                  >
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Upload input */}
+        <div>
+          <label class="label" for="images">Add Images</label>
+          <input
+            type="file"
+            id="images"
+            accept="image/*"
+            multiple
+            onChange={handleImageUpload}
+            class="input"
+            disabled={uploading}
+          />
+          <p class="mt-2 text-sm text-brown/50 font-sans">
+            {uploading ? 'Uploading...' : 'Supports JPEG, PNG, WebP, GIF (max 10MB each). First image becomes primary.'}
+          </p>
         </div>
       </div>
 
@@ -412,7 +616,7 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
         </button>
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || uploading}
           class="btn-primary"
         >
           {loading ? 'Saving...' : (item ? 'Update Item' : 'Add Item')}

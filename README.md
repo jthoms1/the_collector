@@ -1,4 +1,4 @@
-# The Collector
+# Jet
 
 A full-stack web application for managing personal collectible collections, including trading cards and comic books.
 

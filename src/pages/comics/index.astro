@@ -1,27 +1,88 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import ItemGrid from '../../components/ItemGrid.astro';
-import { getItems, getCollectionTypeByName, countItems } from '../../lib/db';
+import CollectionFilters from '../../components/CollectionFilters.astro';
+import PaginationControls from '../../components/PaginationControls.astro';
+import { searchItems, countSearchItems, getCollectionTypeByName, getDistinctYears } from '../../lib/db';
+import type { SearchParams } from '../../lib/schema';
+
+const ITEMS_PER_PAGE = 24;
 
 const comicsType = getCollectionTypeByName('Comics');
 const typeId = comicsType?.id;
-const items = typeId ? getItems(typeId, 100, 0) : [];
-const total = typeId ? countItems(typeId) : 0;
+
+// Parse URL params
+const url = Astro.url;
+const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+const q = url.searchParams.get('q') || '';
+const condition = url.searchParams.get('condition') || '';
+const minValue = url.searchParams.get('minValue') || '';
+const maxValue = url.searchParams.get('maxValue') || '';
+const year = url.searchParams.get('year') || '';
+
+// Build search params
+const searchParams: SearchParams = {
+  type: typeId,
+  limit: ITEMS_PER_PAGE,
+  offset: (page - 1) * ITEMS_PER_PAGE,
+};
+
+if (q) searchParams.q = q;
+if (condition) searchParams.condition = condition;
+if (minValue) searchParams.minValue = parseFloat(minValue);
+if (maxValue) searchParams.maxValue = parseFloat(maxValue);
+if (year) searchParams.year = parseInt(year);
+
+// Fetch items, count, and years
+const items = typeId ? searchItems(searchParams) : [];
+const totalItems = typeId ? countSearchItems(searchParams) : 0;
+const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+const years = typeId ? getDistinctYears(typeId) : [];
+
+// Build base URL for pagination (preserve filters)
+const baseUrl = url.pathname + url.search;
 ---
 
 <Layout title="Comics Collection">
-  <div class="flex items-center justify-between mb-8">
+  <div class="flex items-center justify-between mb-6">
     <div>
-      <h1 class="page-title">Comics Collection</h1>
-      <p class="text-gray-500 mt-1">{total} {total === 1 ? 'comic' : 'comics'} in your collection</p>
+      <h1 class="page-title flex items-center gap-3">
+        <svg class="w-8 h-8 text-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+        Comics Collection
+      </h1>
+      <p class="subtitle mt-1">{totalItems} {totalItems === 1 ? 'comic' : 'comics'} found</p>
     </div>
     <a href="/comics/new" class="btn-primary">
-      <svg class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      <svg class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
       </svg>
       Add Comic
     </a>
   </div>
 
-  <ItemGrid items={items} emptyMessage="No comics in your collection yet. Add your first comic!" />
+  <div class="mb-6">
+    <CollectionFilters
+      baseUrl="/comics"
+      years={years}
+      q={q}
+      condition={condition}
+      minValue={minValue}
+      maxValue={maxValue}
+      year={year}
+    />
+  </div>
+
+  <ItemGrid items={items} emptyMessage="No comics found. Try adjusting your search or filters." />
+
+  {totalPages > 1 && (
+    <div class="mt-8">
+      <PaginationControls
+        currentPage={page}
+        totalPages={totalPages}
+        baseUrl={baseUrl}
+      />
+    </div>
+  )}
 </Layout>

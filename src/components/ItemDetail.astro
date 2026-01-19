@@ -1,81 +1,224 @@
 ---
-import type { ItemWithType } from '../lib/schema';
+import type { ItemWithType, ItemImage } from '../lib/schema';
 import { formatCurrency, formatDate, getConditionColor, getProfessionalGradeColor, getImageUrl } from '../lib/utils';
 
+interface ItemWithOptionalImages extends ItemWithType {
+  images?: ItemImage[];
+}
+
 interface Props {
-  item: ItemWithType;
+  item: ItemWithOptionalImages;
 }
 
 const { item } = Astro.props;
-const imageUrl = getImageUrl(item.image_path, item.collection_type_name);
+
+// Get images array, falling back to legacy single image
+const images: { path: string; orientation: string; is_primary: boolean }[] = item.images?.length
+  ? item.images.map(img => ({
+      path: img.image_path,
+      orientation: img.image_orientation || 'portrait',
+      is_primary: img.is_primary
+    }))
+  : item.image_path
+    ? [{ path: item.image_path, orientation: item.image_orientation || 'portrait', is_primary: true }]
+    : [];
+
+const hasImages = images.length > 0;
+const hasMultipleImages = images.length > 1;
+const primaryImage = images.find(img => img.is_primary) || images[0];
+
 const editUrl = item.collection_type_name.toLowerCase() === 'cards'
   ? `/cards/${item.id}/edit`
   : `/comics/${item.id}/edit`;
+
+// Determine aspect ratio class based on primary image orientation
+const orientation = primaryImage?.orientation || 'portrait';
+const aspectClass = orientation === 'landscape' ? 'aspect-[4/3]' : orientation === 'square' ? 'aspect-square' : 'aspect-[3/4]';
+
+// Map to vintage badge colors
+function getVintageConditionColor(grade: string | null): string {
+  if (!grade) return 'badge-default';
+  const upperGrade = grade.toUpperCase();
+  if (upperGrade.includes('MINT') || upperGrade === 'NM' || upperGrade === 'NM+') {
+    return 'badge-gold';
+  }
+  if (upperGrade.includes('VF') || upperGrade.includes('FINE')) {
+    return 'badge-teal';
+  }
+  return 'badge-default';
+}
+
+function getVintageGradeColor(grade: number | null): string {
+  if (!grade) return 'badge-default';
+  if (grade >= 9.0) return 'badge-gold';
+  if (grade >= 7.0) return 'badge-teal';
+  return 'badge-default';
+}
 ---
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
   <!-- Image Section -->
   <div class="card overflow-hidden">
-    <div class="aspect-[3/4] bg-gray-100">
-      {item.image_path ? (
-        <img
-          src={imageUrl}
-          alt={item.name}
-          class="w-full h-full object-contain"
-        />
+    <div class:list={[aspectClass, "bg-peach relative"]}>
+      {hasImages ? (
+        <button
+          type="button"
+          id="image-trigger"
+          class="w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-teal focus:ring-offset-2"
+          aria-label="View full size image"
+          data-index="0"
+        >
+          <img
+            id="main-image"
+            src={getImageUrl(primaryImage.path, item.collection_type_name, 'medium')}
+            alt={item.name}
+            class="w-full h-full object-contain"
+          />
+        </button>
       ) : (
-        <div class="w-full h-full flex items-center justify-center text-gray-400">
-          <svg class="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        <div class="w-full h-full flex items-center justify-center text-brown/30">
+          <svg class="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         </div>
       )}
     </div>
+
+    <!-- Thumbnail Strip (if multiple images) -->
+    {hasMultipleImages && (
+      <div class="flex gap-2 p-3 bg-peach-dark/30 overflow-x-auto border-t border-brown/20">
+        {images.map((img, index) => (
+          <button
+            type="button"
+            class:list={[
+              "thumbnail-btn flex-shrink-0 w-16 h-20 rounded-panel overflow-hidden transition-all border-2",
+              index === 0 ? "border-teal shadow-comic-sm" : "border-brown/30 hover:border-teal/50"
+            ]}
+            data-index={index}
+            data-medium={getImageUrl(img.path, item.collection_type_name, 'medium')}
+            data-original={getImageUrl(img.path, item.collection_type_name, 'original')}
+          >
+            <img
+              src={getImageUrl(img.path, item.collection_type_name, 'thumb')}
+              alt={`${item.name} - Image ${index + 1}`}
+              class="w-full h-full object-cover"
+            />
+          </button>
+        ))}
+      </div>
+    )}
   </div>
+
+  <!-- Lightbox Modal -->
+  {hasImages && (
+    <div
+      id="lightbox"
+      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/90 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Full size image viewer"
+    >
+      <!-- Close button -->
+      <button
+        type="button"
+        id="lightbox-close"
+        class="absolute top-4 right-4 text-white/70 hover:text-white transition-colors p-2 z-10"
+        aria-label="Close lightbox"
+      >
+        <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <!-- Previous button -->
+      {hasMultipleImages && (
+        <button
+          type="button"
+          id="lightbox-prev"
+          class="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors p-2 z-10"
+          aria-label="Previous image"
+        >
+          <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
+      <!-- Main lightbox image -->
+      <img
+        id="lightbox-image"
+        src={getImageUrl(primaryImage.path, item.collection_type_name, 'original')}
+        alt={item.name}
+        class="max-w-full max-h-full object-contain"
+      />
+
+      <!-- Next button -->
+      {hasMultipleImages && (
+        <button
+          type="button"
+          id="lightbox-next"
+          class="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors p-2 z-10"
+          aria-label="Next image"
+        >
+          <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      <!-- Image counter -->
+      {hasMultipleImages && (
+        <div id="lightbox-counter" class="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/70 font-sans text-sm bg-black/50 px-3 py-1 rounded-full">
+          1 / {images.length}
+        </div>
+      )}
+    </div>
+  )}
 
   <!-- Details Section -->
   <div>
+    <!-- Header with title and edit button -->
     <div class="flex items-start justify-between mb-6">
       <div>
-        <span class="badge bg-gray-100 text-gray-600 mb-2">
+        <span class="badge-teal mb-3 inline-block">
           {item.collection_type_name}
         </span>
-        <h1 class="text-3xl font-bold text-gray-900">{item.name}</h1>
+        <h1 class="text-3xl font-display font-bold text-navy leading-tight">{item.name}</h1>
         {item.series && (
-          <p class="text-lg text-gray-600 mt-1">
+          <p class="text-lg text-brown/70 mt-2 font-sans italic">
             {item.series} {item.issue_number && `#${item.issue_number}`}
           </p>
         )}
       </div>
       <a href={editUrl} class="btn-secondary">
-        <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
         </svg>
         Edit
       </a>
     </div>
 
-    <!-- Key Info Cards -->
+    <!-- Value Cards -->
     <div class="grid grid-cols-2 gap-4 mb-8">
-      <div class="card p-4">
-        <span class="text-sm text-gray-500">Estimated Value</span>
-        <p class="text-2xl font-bold text-primary-600">
+      <div class="card p-5">
+        <span class="stat-label">Estimated Value</span>
+        <p class="stat-value mt-1">
           {formatCurrency(item.estimated_value) || '-'}
         </p>
         {item.value_updated_at && (
-          <span class="text-xs text-gray-400">
+          <span class="text-xs text-brown/50 mt-1 block font-sans">
             Updated {formatDate(item.value_updated_at)}
           </span>
         )}
       </div>
 
-      <div class="card p-4">
-        <span class="text-sm text-gray-500">Purchase Price</span>
-        <p class="text-2xl font-bold text-gray-900">
+      <div class="card p-5">
+        <span class="stat-label">Purchase Price</span>
+        <p class="text-3xl font-display font-bold text-navy mt-1">
           {formatCurrency(item.purchase_price) || '-'}
         </p>
         {item.purchase_date && (
-          <span class="text-xs text-gray-400">
+          <span class="text-xs text-brown/50 mt-1 block font-sans">
             Purchased {formatDate(item.purchase_date)}
           </span>
         )}
@@ -83,65 +226,194 @@ const editUrl = item.collection_type_name.toLowerCase() === 'cards'
     </div>
 
     <!-- Details List -->
-    <div class="card divide-y divide-gray-100">
-      <div class="p-4 flex justify-between">
-        <span class="text-gray-500">Condition</span>
-        <span>
-          {item.professional_grade ? (
-            <span class={`badge ${getProfessionalGradeColor(item.professional_grade)}`}>
-              {item.grading_company} {item.professional_grade}
-            </span>
-          ) : item.condition_grade ? (
-            <span class={`badge ${getConditionColor(item.condition_grade)}`}>
-              {item.condition_grade}
-            </span>
-          ) : (
-            <span class="text-gray-400">Ungraded</span>
-          )}
-        </span>
-      </div>
-
-      {item.cert_number && (
-        <div class="p-4 flex justify-between">
-          <span class="text-gray-500">Certification #</span>
-          <span class="font-mono">{item.cert_number}</span>
+    <div class="card">
+      <div class="divide-y-2 divide-dashed divide-brown/20">
+        <div class="p-4 flex justify-between items-center">
+          <span class="text-brown/70 font-sans">Condition</span>
+          <span>
+            {item.professional_grade ? (
+              <span class={getVintageGradeColor(item.professional_grade)}>
+                {item.grading_company} {item.professional_grade}
+              </span>
+            ) : item.condition_grade ? (
+              <span class={getVintageConditionColor(item.condition_grade)}>
+                {item.condition_grade}
+              </span>
+            ) : (
+              <span class="text-brown/40 font-sans italic">Ungraded</span>
+            )}
+          </span>
         </div>
-      )}
 
-      {item.publisher && (
-        <div class="p-4 flex justify-between">
-          <span class="text-gray-500">Publisher</span>
-          <span>{item.publisher}</span>
+        {item.cert_number && (
+          <div class="p-4 flex justify-between items-center">
+            <span class="text-brown/70 font-sans">Certification #</span>
+            <span class="font-mono text-navy bg-cream px-2 py-1 rounded border border-brown/20">{item.cert_number}</span>
+          </div>
+        )}
+
+        {item.publisher && (
+          <div class="p-4 flex justify-between items-center">
+            <span class="text-brown/70 font-sans">Publisher</span>
+            <span class="font-sans font-medium text-navy">{item.publisher}</span>
+          </div>
+        )}
+
+        {item.year && (
+          <div class="p-4 flex justify-between items-center">
+            <span class="text-brown/70 font-sans">Year</span>
+            <span class="font-display font-bold text-navy">{item.year}</span>
+          </div>
+        )}
+
+        {item.variant && (
+          <div class="p-4 flex justify-between items-center">
+            <span class="text-brown/70 font-sans">Variant</span>
+            <span class="font-sans italic text-brown">{item.variant}</span>
+          </div>
+        )}
+
+        <div class="p-4 flex justify-between items-center">
+          <span class="text-brown/70 font-sans">Added to Collection</span>
+          <span class="font-sans text-brown">{formatDate(item.created_at)}</span>
         </div>
-      )}
-
-      {item.year && (
-        <div class="p-4 flex justify-between">
-          <span class="text-gray-500">Year</span>
-          <span>{item.year}</span>
-        </div>
-      )}
-
-      {item.variant && (
-        <div class="p-4 flex justify-between">
-          <span class="text-gray-500">Variant</span>
-          <span>{item.variant}</span>
-        </div>
-      )}
-
-      <div class="p-4 flex justify-between">
-        <span class="text-gray-500">Added</span>
-        <span>{formatDate(item.created_at)}</span>
       </div>
     </div>
 
+    <!-- Notes Section -->
     {item.notes && (
       <div class="mt-6">
-        <h3 class="section-title mb-2">Notes</h3>
-        <div class="card p-4">
-          <p class="text-gray-700 whitespace-pre-wrap">{item.notes}</p>
+        <h3 class="section-title mb-3 flex items-center gap-2">
+          <svg class="w-5 h-5 text-teal" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Notes
+        </h3>
+        <div class="card p-5">
+          <p class="text-brown font-sans whitespace-pre-wrap leading-relaxed">{item.notes}</p>
         </div>
       </div>
     )}
   </div>
 </div>
+
+<script>
+  const trigger = document.getElementById('image-trigger');
+  const mainImage = document.getElementById('main-image') as HTMLImageElement;
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImage = document.getElementById('lightbox-image') as HTMLImageElement;
+  const lightboxCounter = document.getElementById('lightbox-counter');
+  const closeBtn = document.getElementById('lightbox-close');
+  const prevBtn = document.getElementById('lightbox-prev');
+  const nextBtn = document.getElementById('lightbox-next');
+  const thumbnails = document.querySelectorAll('.thumbnail-btn');
+
+  let currentIndex = 0;
+  const totalImages = thumbnails.length || 1;
+
+  function updateThumbnailSelection(index: number) {
+    thumbnails.forEach((thumb, i) => {
+      if (i === index) {
+        thumb.classList.remove('border-brown/30', 'hover:border-teal/50');
+        thumb.classList.add('border-teal', 'shadow-comic-sm');
+      } else {
+        thumb.classList.remove('border-teal', 'shadow-comic-sm');
+        thumb.classList.add('border-brown/30', 'hover:border-teal/50');
+      }
+    });
+  }
+
+  function showImage(index: number) {
+    currentIndex = ((index % totalImages) + totalImages) % totalImages;
+
+    const thumb = thumbnails[currentIndex] as HTMLElement;
+    if (thumb && mainImage) {
+      mainImage.src = thumb.dataset.medium || '';
+      if (trigger) {
+        trigger.dataset.index = String(currentIndex);
+      }
+    }
+
+    if (lightboxImage && thumb) {
+      lightboxImage.src = thumb.dataset.original || '';
+    }
+
+    if (lightboxCounter) {
+      lightboxCounter.textContent = `${currentIndex + 1} / ${totalImages}`;
+    }
+
+    updateThumbnailSelection(currentIndex);
+  }
+
+  function openLightbox() {
+    if (lightbox) {
+      // Get current index from main image trigger
+      const idx = trigger?.dataset.index ? parseInt(trigger.dataset.index) : 0;
+      currentIndex = idx;
+
+      // Set lightbox image
+      if (thumbnails.length > 0) {
+        const thumb = thumbnails[currentIndex] as HTMLElement;
+        if (lightboxImage && thumb) {
+          lightboxImage.src = thumb.dataset.original || '';
+        }
+      }
+
+      if (lightboxCounter) {
+        lightboxCounter.textContent = `${currentIndex + 1} / ${totalImages}`;
+      }
+
+      lightbox.classList.remove('hidden');
+      lightbox.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    }
+  }
+
+  function closeLightbox() {
+    if (lightbox) {
+      lightbox.classList.add('hidden');
+      lightbox.classList.remove('flex');
+      document.body.style.overflow = '';
+    }
+  }
+
+  // Event listeners
+  trigger?.addEventListener('click', openLightbox);
+  closeBtn?.addEventListener('click', closeLightbox);
+
+  // Thumbnail clicks
+  thumbnails.forEach((thumb, index) => {
+    thumb.addEventListener('click', () => showImage(index));
+  });
+
+  // Lightbox navigation
+  prevBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showImage(currentIndex - 1);
+  });
+
+  nextBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showImage(currentIndex + 1);
+  });
+
+  // Close on backdrop click
+  lightbox?.addEventListener('click', (e) => {
+    if (e.target === lightbox) {
+      closeLightbox();
+    }
+  });
+
+  // Keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (lightbox && !lightbox.classList.contains('hidden')) {
+      if (e.key === 'Escape') {
+        closeLightbox();
+      } else if (e.key === 'ArrowLeft' && totalImages > 1) {
+        showImage(currentIndex - 1);
+      } else if (e.key === 'ArrowRight' && totalImages > 1) {
+        showImage(currentIndex + 1);
+      }
+    }
+  });
+</script>

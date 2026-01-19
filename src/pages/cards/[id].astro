@@ -1,10 +1,10 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import ItemDetail from '../../components/ItemDetail.astro';
-import { getItem } from '../../lib/db';
+import { getItemWithImages } from '../../lib/db';
 
 const { id } = Astro.params;
-const item = getItem(parseInt(id!));
+const item = getItemWithImages(parseInt(id!));
 
 if (!item) {
   return Astro.redirect('/cards');

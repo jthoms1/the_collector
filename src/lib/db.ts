@@ -3,12 +3,16 @@ import path from 'path';
 import type {
   Item,
   ItemWithType,
+  ItemWithImages,
+  ItemImage,
   CollectionType,
   PriceHistory,
   Tag,
   User,
   CreateItemInput,
   UpdateItemInput,
+  CreateItemImageInput,
+  UpdateItemImageInput,
   CollectionStats,
   SearchParams
 } from './schema';
@@ -55,6 +59,7 @@ function initializeSchema() {
       estimated_value REAL,
       value_updated_at TEXT,
       image_path TEXT,
+      image_orientation TEXT DEFAULT 'portrait',
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +116,43 @@ function initializeSchema() {
     insertUser.run('Josh');
     insertUser.run('Ellie');
   }
+
+  // Migration: Add image_orientation column if it doesn't exist
+  const itemColumns = database.prepare("PRAGMA table_info(items)").all() as { name: string }[];
+  const hasOrientation = itemColumns.some(col => col.name === 'image_orientation');
+  if (!hasOrientation) {
+    database.exec("ALTER TABLE items ADD COLUMN image_orientation TEXT DEFAULT 'portrait'");
+  }
+
+  // Create item_images table for multiple images per item
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS item_images (
+      id INTEGER PRIMARY KEY,
+      item_id INTEGER NOT NULL,
+      image_path TEXT NOT NULL,
+      image_orientation TEXT DEFAULT 'portrait',
+      is_primary INTEGER DEFAULT 0,
+      display_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_item_images_item ON item_images(item_id);
+    CREATE INDEX IF NOT EXISTS idx_item_images_primary ON item_images(item_id, is_primary);
+  `);
+
+  // Migration: Move existing image_path data to item_images table
+  const hasItemImages = database.prepare("SELECT COUNT(*) as count FROM item_images").get() as { count: number };
+  const hasLegacyImages = database.prepare("SELECT COUNT(*) as count FROM items WHERE image_path IS NOT NULL AND image_path != ''").get() as { count: number };
+
+  if (hasItemImages.count === 0 && hasLegacyImages.count > 0) {
+    database.exec(`
+      INSERT INTO item_images (item_id, image_path, image_orientation, is_primary, display_order)
+      SELECT id, image_path, COALESCE(image_orientation, 'portrait'), 1, 0
+      FROM items
+      WHERE image_path IS NOT NULL AND image_path != ''
+    `);
+  }
 }
 
 // Collection Types
@@ -164,8 +206,8 @@ export function createItem(input: CreateItemInput): Item {
       collection_type_id, user_id, name, year, publisher, series, issue_number,
       variant, condition_grade, professional_grade, grading_company,
       cert_number, purchase_price, purchase_date, estimated_value,
-      value_updated_at, image_path, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      value_updated_at, image_path, image_orientation, notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.collection_type_id,
     input.user_id ?? null,
@@ -184,6 +226,7 @@ export function createItem(input: CreateItemInput): Item {
     input.estimated_value ?? null,
     input.estimated_value ? now : null,
     input.image_path ?? null,
+    input.image_orientation ?? 'portrait',
     input.notes ?? null,
     now,
     now
@@ -205,7 +248,7 @@ export function updateItem(input: UpdateItemInput): Item | undefined {
     'collection_type_id', 'user_id', 'name', 'year', 'publisher', 'series', 'issue_number',
     'variant', 'condition_grade', 'professional_grade', 'grading_company',
     'cert_number', 'purchase_price', 'purchase_date', 'estimated_value',
-    'image_path', 'notes'
+    'image_path', 'image_orientation', 'notes'
   ];
 
   for (const field of updateFields) {
@@ -237,7 +280,8 @@ export function deleteItem(id: number): boolean {
 export function searchItems(params: SearchParams): ItemWithType[] {
   const db = getDb();
   let query = `
-    SELECT items.*, collection_types.name as collection_type_name
+    SELECT items.*, collection_types.name as collection_type_name,
+           (SELECT COUNT(*) FROM item_images WHERE item_images.item_id = items.id) as image_count
     FROM items
     JOIN collection_types ON items.collection_type_id = collection_types.id
     WHERE 1=1
@@ -285,6 +329,55 @@ export function searchItems(params: SearchParams): ItemWithType[] {
   queryParams.push(params.limit ?? 50, params.offset ?? 0);
 
   return db.prepare(query).all(...queryParams) as ItemWithType[];
+}
+
+// Count search results for pagination
+export function countSearchItems(params: SearchParams): number {
+  const db = getDb();
+  let query = `
+    SELECT COUNT(*) as count
+    FROM items
+    WHERE 1=1
+  `;
+  const queryParams: (string | number)[] = [];
+
+  if (params.q) {
+    query += ` AND (
+      items.name LIKE ? OR
+      items.publisher LIKE ? OR
+      items.series LIKE ? OR
+      items.notes LIKE ?
+    )`;
+    const searchTerm = `%${params.q}%`;
+    queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+  }
+
+  if (params.type) {
+    query += ' AND items.collection_type_id = ?';
+    queryParams.push(params.type);
+  }
+
+  if (params.minValue !== undefined) {
+    query += ' AND items.estimated_value >= ?';
+    queryParams.push(params.minValue);
+  }
+
+  if (params.maxValue !== undefined) {
+    query += ' AND items.estimated_value <= ?';
+    queryParams.push(params.maxValue);
+  }
+
+  if (params.condition) {
+    query += ' AND items.condition_grade = ?';
+    queryParams.push(params.condition);
+  }
+
+  if (params.year) {
+    query += ' AND items.year = ?';
+    queryParams.push(params.year);
+  }
+
+  return (db.prepare(query).get(...queryParams) as { count: number }).count;
 }
 
 // Statistics
@@ -394,6 +487,22 @@ export function countItems(typeId?: number): number {
   return (getDb().prepare(query).get() as { count: number }).count;
 }
 
+// Get distinct years for a collection type
+export function getDistinctYears(typeId?: number): number[] {
+  let query = 'SELECT DISTINCT year FROM items WHERE year IS NOT NULL';
+  const params: number[] = [];
+
+  if (typeId) {
+    query += ' AND collection_type_id = ?';
+    params.push(typeId);
+  }
+
+  query += ' ORDER BY year DESC';
+
+  const rows = getDb().prepare(query).all(...params) as { year: number }[];
+  return rows.map((r) => r.year);
+}
+
 // Users
 export function getUsers(): User[] {
   return getDb().prepare('SELECT * FROM users ORDER BY name').all() as User[];
@@ -401,4 +510,163 @@ export function getUsers(): User[] {
 
 export function getUser(id: number): User | undefined {
   return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
+}
+
+// Item Images
+export function getItemImages(itemId: number): ItemImage[] {
+  const rows = getDb().prepare(`
+    SELECT * FROM item_images
+    WHERE item_id = ?
+    ORDER BY display_order ASC, created_at ASC
+  `).all(itemId) as (Omit<ItemImage, 'is_primary'> & { is_primary: number })[];
+
+  return rows.map(row => ({
+    ...row,
+    is_primary: Boolean(row.is_primary)
+  }));
+}
+
+export function getItemImage(imageId: number): ItemImage | undefined {
+  const row = getDb().prepare('SELECT * FROM item_images WHERE id = ?').get(imageId) as
+    (Omit<ItemImage, 'is_primary'> & { is_primary: number }) | undefined;
+
+  if (!row) return undefined;
+
+  return {
+    ...row,
+    is_primary: Boolean(row.is_primary)
+  };
+}
+
+export function getPrimaryImage(itemId: number): ItemImage | undefined {
+  const row = getDb().prepare(`
+    SELECT * FROM item_images
+    WHERE item_id = ? AND is_primary = 1
+    LIMIT 1
+  `).get(itemId) as (Omit<ItemImage, 'is_primary'> & { is_primary: number }) | undefined;
+
+  if (!row) {
+    // Fall back to first image if no primary is set
+    const fallback = getDb().prepare(`
+      SELECT * FROM item_images
+      WHERE item_id = ?
+      ORDER BY display_order ASC, created_at ASC
+      LIMIT 1
+    `).get(itemId) as (Omit<ItemImage, 'is_primary'> & { is_primary: number }) | undefined;
+
+    if (!fallback) return undefined;
+    return { ...fallback, is_primary: Boolean(fallback.is_primary) };
+  }
+
+  return { ...row, is_primary: Boolean(row.is_primary) };
+}
+
+export function addItemImage(input: CreateItemImageInput): ItemImage {
+  const db = getDb();
+
+  // If this is the first image or is_primary is true, ensure only one primary
+  const existingImages = getItemImages(input.item_id);
+  const isPrimary = input.is_primary ?? existingImages.length === 0;
+
+  if (isPrimary && existingImages.length > 0) {
+    // Unset other primaries
+    db.prepare('UPDATE item_images SET is_primary = 0 WHERE item_id = ?').run(input.item_id);
+  }
+
+  const displayOrder = input.display_order ?? existingImages.length;
+
+  const result = db.prepare(`
+    INSERT INTO item_images (item_id, image_path, image_orientation, is_primary, display_order)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    input.item_id,
+    input.image_path,
+    input.image_orientation ?? 'portrait',
+    isPrimary ? 1 : 0,
+    displayOrder
+  );
+
+  return getItemImage(result.lastInsertRowid as number)!;
+}
+
+export function updateItemImage(imageId: number, input: UpdateItemImageInput): ItemImage | undefined {
+  const db = getDb();
+  const existing = getItemImage(imageId);
+  if (!existing) return undefined;
+
+  const fields: string[] = [];
+  const values: (number | string)[] = [];
+
+  if (input.is_primary !== undefined) {
+    if (input.is_primary) {
+      // Unset other primaries first
+      db.prepare('UPDATE item_images SET is_primary = 0 WHERE item_id = ?').run(existing.item_id);
+    }
+    fields.push('is_primary = ?');
+    values.push(input.is_primary ? 1 : 0);
+  }
+
+  if (input.display_order !== undefined) {
+    fields.push('display_order = ?');
+    values.push(input.display_order);
+  }
+
+  if (fields.length > 0) {
+    values.push(imageId);
+    db.prepare(`UPDATE item_images SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  return getItemImage(imageId);
+}
+
+export function removeItemImage(imageId: number): { success: boolean; imagePath: string | null } {
+  const db = getDb();
+  const existing = getItemImage(imageId);
+  if (!existing) return { success: false, imagePath: null };
+
+  const imagePath = existing.image_path;
+  const wasPrimary = existing.is_primary;
+  const itemId = existing.item_id;
+
+  db.prepare('DELETE FROM item_images WHERE id = ?').run(imageId);
+
+  // If we deleted the primary, make the first remaining image primary
+  if (wasPrimary) {
+    const remaining = getItemImages(itemId);
+    if (remaining.length > 0) {
+      db.prepare('UPDATE item_images SET is_primary = 1 WHERE id = ?').run(remaining[0].id);
+    }
+  }
+
+  return { success: true, imagePath };
+}
+
+export function reorderItemImages(itemId: number, imageIds: number[]): boolean {
+  const db = getDb();
+
+  const transaction = db.transaction(() => {
+    for (let i = 0; i < imageIds.length; i++) {
+      db.prepare('UPDATE item_images SET display_order = ? WHERE id = ? AND item_id = ?')
+        .run(i, imageIds[i], itemId);
+    }
+  });
+
+  transaction();
+  return true;
+}
+
+export function setItemImagePrimary(imageId: number): ItemImage | undefined {
+  return updateItemImage(imageId, { is_primary: true });
+}
+
+export function getItemWithImages(id: number): ItemWithImages | undefined {
+  const item = getItem(id);
+  if (!item) return undefined;
+
+  const images = getItemImages(id);
+
+  return {
+    ...item,
+    images
+  };
 }
