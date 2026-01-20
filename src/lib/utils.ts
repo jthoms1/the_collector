@@ -47,7 +47,9 @@ export function getImageUrl(
   // Normalize the path
   let normalizedPath = imagePath;
   if (!normalizedPath.startsWith('/')) {
-    const folder = collectionType.toLowerCase() === 'cards' ? 'Cards' : 'Comics';
+    // Map collection types to folders
+    const isCardType = collectionType === 'Sports Cards' || collectionType === 'Trading Cards' || collectionType.toLowerCase() === 'cards';
+    const folder = isCardType ? 'Cards' : 'Comics';
     normalizedPath = `/${folder}/${imagePath}`;
   }
 

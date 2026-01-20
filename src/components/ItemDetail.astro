@@ -27,9 +27,9 @@ const hasImages = images.length > 0;
 const hasMultipleImages = images.length > 1;
 const primaryImage = images.find(img => img.is_primary) || images[0];
 
-const editUrl = item.collection_type_name.toLowerCase() === 'cards'
-  ? `/cards/${item.id}/edit`
-  : `/comics/${item.id}/edit`;
+// Map collection type names to routes
+const isCardType = item.collection_type_name === 'Sports Cards' || item.collection_type_name === 'Trading Cards';
+const editUrl = isCardType ? `/cards/${item.id}/edit` : `/comics/${item.id}/edit`;
 
 // Determine aspect ratio class based on primary image orientation
 const orientation = primaryImage?.orientation || 'portrait';

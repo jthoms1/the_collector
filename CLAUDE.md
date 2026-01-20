@@ -1,6 +1,6 @@
 # Jet
 
-Personal collectibles management app for trading cards and comic books.
+Personal collectibles management app for sports cards, trading cards (TCGs including Pokemon, MTG, Yu-Gi-Oh), and comic books.
 
 ## Quick Reference
 

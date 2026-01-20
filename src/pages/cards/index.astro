@@ -8,8 +8,9 @@ import type { SearchParams, SortOption } from '../../lib/schema';
 
 const ITEMS_PER_PAGE = 24;
 
-const cardsType = getCollectionTypeByName('Cards');
-const typeId = cardsType?.id;
+// Get both card types
+const sportsCardsType = getCollectionTypeByName('Sports Cards');
+const tradingCardsType = getCollectionTypeByName('Trading Cards');
 
 // Parse URL params
 const url = Astro.url;
@@ -20,6 +21,16 @@ const minValue = url.searchParams.get('minValue') || '';
 const maxValue = url.searchParams.get('maxValue') || '';
 const year = url.searchParams.get('year') || '';
 const sort = (url.searchParams.get('sort') || 'updated_desc') as SortOption;
+const cardType = url.searchParams.get('cardType') || 'all';
+
+// Determine which type(s) to show
+let typeId: number | undefined;
+if (cardType === 'sports' && sportsCardsType) {
+  typeId = sportsCardsType.id;
+} else if (cardType === 'trading' && tradingCardsType) {
+  typeId = tradingCardsType.id;
+}
+// If 'all', typeId remains undefined and we'll fetch both
 
 // Build search params
 const searchParams: SearchParams = {
@@ -35,14 +46,53 @@ if (minValue) searchParams.minValue = parseFloat(minValue);
 if (maxValue) searchParams.maxValue = parseFloat(maxValue);
 if (year) searchParams.year = parseInt(year);
 
-// Fetch items, count, and years
-const items = typeId ? searchItems(searchParams) : [];
-const totalItems = typeId ? countSearchItems(searchParams) : 0;
+// For "all" cards, we need to filter to only card types (not comics)
+let items: any[] = [];
+let totalItems = 0;
+
+if (cardType === 'all') {
+  // Fetch both card types separately and combine
+  const sportsParams = { ...searchParams, type: sportsCardsType?.id };
+  const tradingParams = { ...searchParams, type: tradingCardsType?.id };
+
+  const sportsItems = sportsCardsType ? searchItems(sportsParams) : [];
+  const tradingItems = tradingCardsType ? searchItems(tradingParams) : [];
+
+  // Combine and sort by updated_at
+  items = [...sportsItems, ...tradingItems].sort((a, b) => {
+    if (sort === 'updated_desc') return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    if (sort === 'updated_asc') return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+    if (sort === 'name_asc') return a.name.localeCompare(b.name);
+    if (sort === 'name_desc') return b.name.localeCompare(a.name);
+    if (sort === 'value_desc') return (b.estimated_value || 0) - (a.estimated_value || 0);
+    if (sort === 'value_asc') return (a.estimated_value || 0) - (b.estimated_value || 0);
+    if (sort === 'year_desc') return (b.year || 0) - (a.year || 0);
+    if (sort === 'year_asc') return (a.year || 0) - (b.year || 0);
+    return 0;
+  }).slice(0, ITEMS_PER_PAGE);
+
+  const sportsCount = sportsCardsType ? countSearchItems({ ...searchParams, type: sportsCardsType.id }) : 0;
+  const tradingCount = tradingCardsType ? countSearchItems({ ...searchParams, type: tradingCardsType.id }) : 0;
+  totalItems = sportsCount + tradingCount;
+} else {
+  items = typeId ? searchItems(searchParams) : [];
+  totalItems = typeId ? countSearchItems(searchParams) : 0;
+}
+
 const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-const years = typeId ? getDistinctYears(typeId) : [];
+
+// Get years from both types for filter
+const sportsYears = sportsCardsType ? getDistinctYears(sportsCardsType.id) : [];
+const tradingYears = tradingCardsType ? getDistinctYears(tradingCardsType.id) : [];
+const years = [...new Set([...sportsYears, ...tradingYears])].sort((a, b) => b - a);
 
 // Build base URL for pagination (preserve filters)
 const baseUrl = url.pathname + url.search;
+
+// Count for each type (for tabs)
+const sportsCount = sportsCardsType ? countSearchItems({ type: sportsCardsType.id }) : 0;
+const tradingCount = tradingCardsType ? countSearchItems({ type: tradingCardsType.id }) : 0;
+const allCount = sportsCount + tradingCount;
 ---
 
 <Layout title="Cards Collection">
@@ -61,6 +111,37 @@ const baseUrl = url.pathname + url.search;
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
       </svg>
       Add Card
+    </a>
+  </div>
+
+  <!-- Card Type Tabs -->
+  <div class="flex gap-2 mb-6">
+    <a
+      href={`/cards?cardType=all${q ? `&q=${q}` : ''}${sort !== 'updated_desc' ? `&sort=${sort}` : ''}`}
+      class:list={[
+        'px-4 py-2 rounded-lg font-medium transition-colors',
+        cardType === 'all' ? 'bg-navy text-cream' : 'bg-cream/50 text-brown hover:bg-cream'
+      ]}
+    >
+      All Cards <span class="text-sm opacity-70">({allCount})</span>
+    </a>
+    <a
+      href={`/cards?cardType=sports${q ? `&q=${q}` : ''}${sort !== 'updated_desc' ? `&sort=${sort}` : ''}`}
+      class:list={[
+        'px-4 py-2 rounded-lg font-medium transition-colors',
+        cardType === 'sports' ? 'bg-navy text-cream' : 'bg-cream/50 text-brown hover:bg-cream'
+      ]}
+    >
+      Sports Cards <span class="text-sm opacity-70">({sportsCount})</span>
+    </a>
+    <a
+      href={`/cards?cardType=trading${q ? `&q=${q}` : ''}${sort !== 'updated_desc' ? `&sort=${sort}` : ''}`}
+      class:list={[
+        'px-4 py-2 rounded-lg font-medium transition-colors',
+        cardType === 'trading' ? 'bg-navy text-cream' : 'bg-cream/50 text-brown hover:bg-cream'
+      ]}
+    >
+      Trading Cards <span class="text-sm opacity-70">({tradingCount})</span>
     </a>
   </div>
 

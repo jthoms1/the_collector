@@ -69,8 +69,9 @@ export default function SearchBar({ initialQuery = '', onSearch, placeholder = '
   };
 
   const getItemUrl = (item: ItemWithType) => {
-    const type = item.collection_type_name?.toLowerCase() || 'cards';
-    return `/${type}/${item.id}`;
+    const typeName = item.collection_type_name || 'Cards';
+    const isCardType = typeName === 'Sports Cards' || typeName === 'Trading Cards';
+    return isCardType ? `/cards/${item.id}` : `/comics/${item.id}`;
   };
 
   const getThumbnailClass = (item: ItemWithType) => {

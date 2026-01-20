@@ -268,8 +268,15 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
       if (onSuccess) {
         onSuccess(savedItem);
       } else {
-        const typeName = collectionTypes.find(t => t.id === savedItem.collection_type_id)?.name?.toLowerCase() || 'cards';
-        window.location.href = `/${typeName}/${savedItem.id}`;
+        const typeName = collectionTypes.find(t => t.id === savedItem.collection_type_id)?.name || 'Cards';
+        // Map collection type names to routes
+        const routeMap: Record<string, string> = {
+          'Sports Cards': 'cards',
+          'Trading Cards': 'cards',
+          'Comics': 'comics'
+        };
+        const route = routeMap[typeName] || 'cards';
+        window.location.href = `/${route}/${savedItem.id}`;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

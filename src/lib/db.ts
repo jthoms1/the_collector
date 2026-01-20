@@ -105,8 +105,44 @@ function initializeSchema() {
   const typesCount = database.prepare('SELECT COUNT(*) as count FROM collection_types').get() as { count: number };
   if (typesCount.count === 0) {
     const insertType = database.prepare('INSERT INTO collection_types (name, description) VALUES (?, ?)');
-    insertType.run('Cards', 'Trading cards, sports cards, and collectible card games');
+    insertType.run('Sports Cards', 'Baseball, basketball, football, hockey, and other sports cards');
+    insertType.run('Trading Cards', 'Trading card games including Pokemon, Magic: The Gathering, Yu-Gi-Oh, and more');
     insertType.run('Comics', 'Comic books, graphic novels, and manga');
+  }
+
+  // Migration: Rename 'Cards' to 'Sports Cards' if it exists
+  const hasOldCards = database.prepare("SELECT COUNT(*) as count FROM collection_types WHERE name = 'Cards'").get() as { count: number };
+  if (hasOldCards.count > 0) {
+    database.prepare("UPDATE collection_types SET name = 'Sports Cards', description = 'Baseball, basketball, football, hockey, and other sports cards' WHERE name = 'Cards'").run();
+  }
+
+  // Migration: Add Sports Cards if it doesn't exist (for databases that already have other types)
+  const hasSportsCards = database.prepare("SELECT COUNT(*) as count FROM collection_types WHERE name = 'Sports Cards'").get() as { count: number };
+  if (hasSportsCards.count === 0) {
+    database.prepare('INSERT INTO collection_types (name, description) VALUES (?, ?)').run('Sports Cards', 'Baseball, basketball, football, hockey, and other sports cards');
+  }
+
+  // Migration: Add Trading Cards if it doesn't exist
+  const hasTradingCards = database.prepare("SELECT COUNT(*) as count FROM collection_types WHERE name = 'Trading Cards'").get() as { count: number };
+  if (hasTradingCards.count === 0) {
+    database.prepare('INSERT INTO collection_types (name, description) VALUES (?, ?)').run('Trading Cards', 'Trading card games including Pokemon, Magic: The Gathering, Yu-Gi-Oh, and more');
+  } else {
+    // Update description to include Pokemon
+    database.prepare("UPDATE collection_types SET description = 'Trading card games including Pokemon, Magic: The Gathering, Yu-Gi-Oh, and more' WHERE name = 'Trading Cards'").run();
+  }
+
+  // Migration: Merge Pokemon into Trading Cards
+  const hasPokemon = database.prepare("SELECT COUNT(*) as count FROM collection_types WHERE name = 'Pokemon'").get() as { count: number };
+  if (hasPokemon.count > 0) {
+    const tradingCardsType = database.prepare("SELECT id FROM collection_types WHERE name = 'Trading Cards'").get() as { id: number } | undefined;
+    const pokemonType = database.prepare("SELECT id FROM collection_types WHERE name = 'Pokemon'").get() as { id: number } | undefined;
+
+    if (tradingCardsType && pokemonType) {
+      // Move all Pokemon items to Trading Cards
+      database.prepare("UPDATE items SET collection_type_id = ? WHERE collection_type_id = ?").run(tradingCardsType.id, pokemonType.id);
+      // Delete the Pokemon collection type
+      database.prepare("DELETE FROM collection_types WHERE name = 'Pokemon'").run();
+    }
   }
 
   // Seed default users if they don't exist

@@ -3,7 +3,15 @@ import Layout from '../../layouts/Layout.astro';
 import ItemForm from '../../components/ItemForm';
 import { getCollectionTypeByName } from '../../lib/db';
 
-const cardsType = getCollectionTypeByName('Cards');
+// Check URL param for pre-selected card type
+const url = Astro.url;
+const cardTypeParam = url.searchParams.get('type');
+
+// Default to Sports Cards if no type specified
+let defaultType = getCollectionTypeByName('Sports Cards');
+if (cardTypeParam === 'trading') {
+  defaultType = getCollectionTypeByName('Trading Cards');
+}
 ---
 
 <Layout title="Add Card">
@@ -19,6 +27,6 @@ const cardsType = getCollectionTypeByName('Cards');
   <h1 class="page-title mb-8">Add New Card</h1>
 
   <div class="max-w-3xl">
-    <ItemForm client:load collectionTypeId={cardsType?.id} />
+    <ItemForm client:load collectionTypeId={defaultType?.id} />
   </div>
 </Layout>
