@@ -91,7 +91,8 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
     purchase_price: item?.purchase_price?.toString() || '',
     purchase_date: item?.purchase_date || '',
     estimated_value: item?.estimated_value?.toString() || '',
-    notes: item?.notes || ''
+    notes: item?.notes || '',
+    key_information: item?.key_information || ''
   });
 
   useEffect(() => {
@@ -210,7 +211,8 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
       estimated_value: formData.estimated_value ? parseFloat(formData.estimated_value) : null,
       image_path: primaryImage?.image_path || null,
       image_orientation: primaryImage?.image_orientation || 'portrait',
-      notes: formData.notes || null
+      notes: formData.notes || null,
+      key_information: formData.key_information || null
     };
 
     try {
@@ -382,6 +384,22 @@ export default function ItemForm({ item, collectionTypeId, onSuccess }: Props) {
               class="input"
               placeholder="e.g., Gold Foil, First Print"
             />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="label" for="key_information">Key Information</label>
+            <input
+              type="text"
+              id="key_information"
+              name="key_information"
+              value={formData.key_information}
+              onInput={handleChange}
+              class="input"
+              placeholder="e.g., First appearance of Spawn, Key issue"
+            />
+            <p class="mt-1 text-sm text-brown/50 font-sans">
+              Notable significance (first appearances, key issues, etc.)
+            </p>
           </div>
         </div>
       </div>

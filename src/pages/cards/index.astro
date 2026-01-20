@@ -4,7 +4,7 @@ import ItemGrid from '../../components/ItemGrid.astro';
 import CollectionFilters from '../../components/CollectionFilters.astro';
 import PaginationControls from '../../components/PaginationControls.astro';
 import { searchItems, countSearchItems, getCollectionTypeByName, getDistinctYears } from '../../lib/db';
-import type { SearchParams } from '../../lib/schema';
+import type { SearchParams, SortOption } from '../../lib/schema';
 
 const ITEMS_PER_PAGE = 24;
 
@@ -19,10 +19,12 @@ const condition = url.searchParams.get('condition') || '';
 const minValue = url.searchParams.get('minValue') || '';
 const maxValue = url.searchParams.get('maxValue') || '';
 const year = url.searchParams.get('year') || '';
+const sort = (url.searchParams.get('sort') || 'updated_desc') as SortOption;
 
 // Build search params
 const searchParams: SearchParams = {
   type: typeId,
+  sort,
   limit: ITEMS_PER_PAGE,
   offset: (page - 1) * ITEMS_PER_PAGE,
 };
@@ -71,6 +73,7 @@ const baseUrl = url.pathname + url.search;
       minValue={minValue}
       maxValue={maxValue}
       year={year}
+      sort={sort}
     />
   </div>
 

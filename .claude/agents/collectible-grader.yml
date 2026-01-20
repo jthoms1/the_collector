@@ -23,6 +23,56 @@ prompt: |
   Analyze the provided images and assess their condition using professional grading standards.
   Provide detailed grade estimates with specific reasoning for each assessment.
 
+  ## CRITICAL: Complete Condition Notes Required for EVERY Item
+
+  **You MUST provide complete, detailed condition assessments for EVERY item regardless of:**
+  - Perceived value (common cards need full notes just like key cards)
+  - Estimated grade (low-grade items need full notes just like high-grade)
+  - Grading recommendation (even "skip_grading" items need complete condition documentation)
+
+  **Every card assessment MUST include:**
+  - Centering: Specific L-R and T-B ratios (e.g., "60/40 L-R, 55/45 T-B")
+  - Corners: Individual assessment of all four corners when possible
+  - Edges: Specific observations (chipping location, severity)
+  - Surface: Creases, scratches, print defects, gloss condition
+
+  **Every comic assessment MUST include:**
+  - Cover: Specific defects, gloss, flatness
+  - Spine: Stress marks, ticks, rolls, breaks
+  - Pages: Color quality, any visible defects
+  - Staples: Condition if visible
+
+  **Do NOT use generic phrases like:**
+  - "Typical condition" (describe what that condition actually IS)
+  - "Age-appropriate wear" (describe the specific wear)
+  - "Minor issues" (name the specific issues)
+
+  The grading recommendation (recommend/maybe/skip) is about whether professional grading is cost-effective. It has NO bearing on how detailed your condition notes should be. A 1992 Donruss common deserves the same level of condition documentation as a 1952 Topps Mickey Mantle.
+
+  ## Facsimile vs. Authentic Autographs
+
+  **IMPORTANT:** Many vintage cards (especially 1950s-1970s Topps) feature FACSIMILE signatures - these are printed signatures that are part of the card design, NOT hand-signed autographs.
+
+  ### How to Identify Facsimile (Printed) Signatures:
+  - Signature is perfectly integrated into the card's printing/color scheme
+  - Ink color matches other printed elements on the card
+  - Signature appears flat, with no texture or indentation
+  - Same signature appears identically on all copies of that card
+  - Common on vintage Topps sets (1950s-1970s especially)
+
+  ### How to Identify Authentic Autographs:
+  - Signature sits ON TOP of the card surface, not integrated into printing
+  - Ink may be slightly raised or have visible texture
+  - Ink color is typically different from printed elements (often blue/black Sharpie or ballpoint)
+  - May show slight bleeding or feathering into card stock
+  - Each signature is unique with natural variation
+  - Often accompanied by authentication stickers (PSA/DNA, JSA, Beckett)
+
+  ### When Evaluating Signatures:
+  - If facsimile: Note as "facsimile signature (printed)" - do NOT provide autograph grade
+  - If authentic: Provide separate autograph grade assessment (boldness, placement, completeness)
+  - If uncertain: Note as "signature present - authenticity undetermined" and recommend authentication
+
   ## For Sports Cards, assess:
 
   ### Four Core Criteria (reference Card_Grading_Guide.md)
@@ -38,6 +88,8 @@ prompt: |
   - corners_assessment: Condition of all four corners
   - edges_assessment: Edge condition
   - surface_assessment: Surface condition
+  - signature_type: "none", "facsimile", "authentic", or "undetermined" (if signature visible)
+  - autograph_grade: Only if signature_type is "authentic" - grade 1-10 for signature quality
   - grade_limiters: Array of factors limiting the grade
   - grading_recommendation: "recommend_grading", "maybe_grade", or "skip_grading"
   - recommendation_reason: Why you made this recommendation
@@ -99,10 +151,27 @@ prompt: |
       "corners_assessment": "All four corners appear sharp with minimal wear",
       "edges_assessment": "Clean edges, no visible chipping",
       "surface_assessment": "Good gloss, no visible scratches or print defects",
+      "signature_type": "none",
       "grade_limiters": ["Slight centering variance to left"],
       "grading_recommendation": "recommend_grading",
       "recommendation_reason": "Iconic rookie card, appears high grade, significant value",
       "notes": "This is the #1 card in the set, highly sought after"
+    },
+    {
+      "type": "card",
+      "image_path": "Cards/IMG_003.jpeg",
+      "item_description": "1971 Topps Johnny Bench",
+      "estimated_grade_low": "PSA 3",
+      "estimated_grade_high": "PSA 4",
+      "centering_assessment": "55/45 left-right - acceptable for era",
+      "corners_assessment": "Visible wear, slight rounding on all corners",
+      "edges_assessment": "White showing through black borders - typical 1971 issue",
+      "surface_assessment": "Light wear consistent with age",
+      "signature_type": "facsimile",
+      "grade_limiters": ["Black border edge chipping", "Corner wear"],
+      "grading_recommendation": "recommend_grading",
+      "recommendation_reason": "Hall of Famer vintage card",
+      "notes": "1971 Topps black borders are notoriously difficult to find in high grade. The signature is a printed facsimile, not a hand-signed autograph."
     },
     {
       "type": "comic",
@@ -131,7 +200,9 @@ prompt: |
   4. Apply grading criteria from the guides
   5. Be conservative in your estimates - it's better to underestimate
   6. Always note what you CANNOT see (back of card, interior pages, etc.)
-  7. Return ONLY the JSON array, no additional commentary
+  7. **EVERY item gets complete condition notes** - no shortcuts for common cards or low-grade items
+  8. Use specific, measurable descriptions (ratios, locations, severity) not vague terms
+  9. Return ONLY the JSON array, no additional commentary
 
   ## Important Limitations
   - You can only assess what's visible in the photo

@@ -124,6 +124,30 @@ function initializeSchema() {
     database.exec("ALTER TABLE items ADD COLUMN image_orientation TEXT DEFAULT 'portrait'");
   }
 
+  // Migration: Add key_information column if it doesn't exist
+  const hasKeyInfo = itemColumns.some(col => col.name === 'key_information');
+  if (!hasKeyInfo) {
+    database.exec("ALTER TABLE items ADD COLUMN key_information TEXT");
+  }
+
+  // Migration: Add valuation fields if they don't exist
+  const hasValueLow = itemColumns.some(col => col.name === 'estimated_value_low');
+  if (!hasValueLow) {
+    database.exec("ALTER TABLE items ADD COLUMN estimated_value_low REAL");
+  }
+  const hasValueHigh = itemColumns.some(col => col.name === 'estimated_value_high');
+  if (!hasValueHigh) {
+    database.exec("ALTER TABLE items ADD COLUMN estimated_value_high REAL");
+  }
+  const hasValueTrend = itemColumns.some(col => col.name === 'value_trend');
+  if (!hasValueTrend) {
+    database.exec("ALTER TABLE items ADD COLUMN value_trend TEXT");
+  }
+  const hasValueConfidence = itemColumns.some(col => col.name === 'value_confidence');
+  if (!hasValueConfidence) {
+    database.exec("ALTER TABLE items ADD COLUMN value_confidence TEXT");
+  }
+
   // Create item_images table for multiple images per item
   database.exec(`
     CREATE TABLE IF NOT EXISTS item_images (
@@ -206,8 +230,9 @@ export function createItem(input: CreateItemInput): Item {
       collection_type_id, user_id, name, year, publisher, series, issue_number,
       variant, condition_grade, professional_grade, grading_company,
       cert_number, purchase_price, purchase_date, estimated_value,
-      value_updated_at, image_path, image_orientation, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      estimated_value_low, estimated_value_high, value_trend, value_confidence,
+      value_updated_at, image_path, image_orientation, notes, key_information, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.collection_type_id,
     input.user_id ?? null,
@@ -224,10 +249,15 @@ export function createItem(input: CreateItemInput): Item {
     input.purchase_price ?? null,
     input.purchase_date ?? null,
     input.estimated_value ?? null,
+    input.estimated_value_low ?? null,
+    input.estimated_value_high ?? null,
+    input.value_trend ?? null,
+    input.value_confidence ?? null,
     input.estimated_value ? now : null,
     input.image_path ?? null,
     input.image_orientation ?? 'portrait',
     input.notes ?? null,
+    input.key_information ?? null,
     now,
     now
   );
@@ -248,7 +278,8 @@ export function updateItem(input: UpdateItemInput): Item | undefined {
     'collection_type_id', 'user_id', 'name', 'year', 'publisher', 'series', 'issue_number',
     'variant', 'condition_grade', 'professional_grade', 'grading_company',
     'cert_number', 'purchase_price', 'purchase_date', 'estimated_value',
-    'image_path', 'image_orientation', 'notes'
+    'estimated_value_low', 'estimated_value_high', 'value_trend', 'value_confidence',
+    'image_path', 'image_orientation', 'notes', 'key_information'
   ];
 
   for (const field of updateFields) {
@@ -258,8 +289,9 @@ export function updateItem(input: UpdateItemInput): Item | undefined {
     }
   }
 
-  // Update value_updated_at if estimated_value changed
-  if ('estimated_value' in input) {
+  // Update value_updated_at if any value field changed
+  if ('estimated_value' in input || 'estimated_value_low' in input ||
+      'estimated_value_high' in input || 'value_trend' in input || 'value_confidence' in input) {
     fields.push('value_updated_at = ?');
     values.push(now);
   }
@@ -324,7 +356,19 @@ export function searchItems(params: SearchParams): ItemWithType[] {
     queryParams.push(params.year);
   }
 
-  query += ' ORDER BY items.updated_at DESC';
+  // Sorting
+  const sortMap: Record<string, string> = {
+    'updated_desc': 'items.updated_at DESC',
+    'updated_asc': 'items.updated_at ASC',
+    'name_asc': 'items.name ASC',
+    'name_desc': 'items.name DESC',
+    'value_desc': 'items.estimated_value DESC NULLS LAST',
+    'value_asc': 'items.estimated_value ASC NULLS LAST',
+    'year_desc': 'items.year DESC NULLS LAST',
+    'year_asc': 'items.year ASC NULLS LAST',
+  };
+  const orderBy = sortMap[params.sort || 'updated_desc'] || 'items.updated_at DESC';
+  query += ` ORDER BY ${orderBy}`;
   query += ` LIMIT ? OFFSET ?`;
   queryParams.push(params.limit ?? 50, params.offset ?? 0);
 

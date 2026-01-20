@@ -23,10 +23,15 @@ export interface Item {
   purchase_price: number | null;
   purchase_date: string | null;
   estimated_value: number | null;
+  estimated_value_low: number | null;
+  estimated_value_high: number | null;
+  value_trend: ValueTrend | null;
+  value_confidence: ValueConfidence | null;
   value_updated_at: string | null;
   image_path: string | null;
   image_orientation: ImageOrientation | null;
   notes: string | null;
+  key_information: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -103,9 +108,14 @@ export interface CreateItemInput {
   purchase_price?: number | null;
   purchase_date?: string | null;
   estimated_value?: number | null;
+  estimated_value_low?: number | null;
+  estimated_value_high?: number | null;
+  value_trend?: ValueTrend | null;
+  value_confidence?: ValueConfidence | null;
   image_path?: string | null;
   image_orientation?: ImageOrientation | null;
   notes?: string | null;
+  key_information?: string | null;
 }
 
 export interface UpdateItemInput extends Partial<CreateItemInput> {
@@ -121,6 +131,19 @@ export interface CollectionStats {
   valueByCondition: { condition: string; value: number }[];
 }
 
+export const SORT_OPTIONS = [
+  { value: 'updated_desc', label: 'Recently Updated' },
+  { value: 'updated_asc', label: 'Oldest Updated' },
+  { value: 'name_asc', label: 'Name (A-Z)' },
+  { value: 'name_desc', label: 'Name (Z-A)' },
+  { value: 'value_desc', label: 'Value (High to Low)' },
+  { value: 'value_asc', label: 'Value (Low to High)' },
+  { value: 'year_desc', label: 'Year (Newest)' },
+  { value: 'year_asc', label: 'Year (Oldest)' },
+] as const;
+
+export type SortOption = typeof SORT_OPTIONS[number]['value'];
+
 export interface SearchParams {
   q?: string;
   type?: number;
@@ -128,6 +151,7 @@ export interface SearchParams {
   maxValue?: number;
   condition?: string;
   year?: number;
+  sort?: SortOption;
   limit?: number;
   offset?: number;
 }
@@ -150,3 +174,19 @@ export const GRADING_COMPANIES = [
   'SGC',
   'CSG'
 ] as const;
+
+export const VALUE_TRENDS = [
+  'appreciating',
+  'stable',
+  'declining',
+  'volatile'
+] as const;
+
+export const VALUE_CONFIDENCE_LEVELS = [
+  'high',
+  'medium',
+  'low'
+] as const;
+
+export type ValueTrend = typeof VALUE_TRENDS[number];
+export type ValueConfidence = typeof VALUE_CONFIDENCE_LEVELS[number];
